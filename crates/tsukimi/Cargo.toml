@@ -45,6 +45,10 @@ xxhash-rust = { workspace = true, features = ["xxh3"] }
 futures-util.workspace = true
 itertools.workspace = true
 moka = { workspace = true, features = ["future"] }
+# MPRIS is a D-Bus interface, so it does nothing on Windows, but the client
+# code is shared and builds there: zbus only pulls its Unix bits behind
+# cfg(unix). Keeping it unconditional avoids cfg-ing the whole media session.
+mpris-server.workspace = true
 
 mutsumi.workspace = true
 dandanapi-client.workspace = true
@@ -60,7 +64,6 @@ render = []
 build_libmpv = []
 
 [target.'cfg(target_os = "linux")'.dependencies]
-mpris-server.workspace = true
 # glycin decodes images in a sandbox over Unix sockets, so it is Linux-only;
 # other platforms fall back to the loader GTK ships.
 glycin = { workspace = true, features = ["gdk4", "tokio"] }

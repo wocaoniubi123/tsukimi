@@ -176,13 +176,6 @@ jobs:
 
           cp target/release/tsukimi.exe "$DIST/"
 
-          # Runtime libraries: everything the linker or dlopen can reach.
-          ldd target/release/tsukimi.exe |
-            awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\/ucrt64\//) print $i }' |
-            sort -u |
-            while read -r dll; do cp -f "$dll" "$DIST/"; done
-          cp -f /ucrt64/bin/libepoxy-0.dll "$DIST/"
-
           # Application resources (UI templates, icons, stylesheet).
           mkdir -p "$DIST/share/tsukimi"
           glib-compile-resources crates/tsukimi/resources/resources.gresource.xml \
@@ -226,6 +219,19 @@ jobs:
             d3d11 mediafoundation wasapi directsoundsink; do
             cp -f "/ucrt64/lib/gstreamer-1.0/libgst${plugin}.dll" "$DIST/lib/gstreamer-1.0/" 2>/dev/null || true
           done
+
+          # Runtime libraries: the executable's closure plus whatever the
+          # dlopened plugins and loaders need, so nothing is missing at run time.
+          collect_deps() {
+            ldd "$@" 2>/dev/null |
+              awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\/ucrt64\//) print $i }'
+          }
+          {
+            collect_deps target/release/tsukimi.exe
+            collect_deps "$DIST"/lib/gstreamer-1.0/*.dll
+            collect_deps "$DIST"/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll
+          } | sort -u | while read -r dll; do cp -f "$dll" "$DIST/"; done
+          cp -f /ucrt64/bin/libepoxy-0.dll "$DIST/"
 
           du -sh "$DIST"
           find "$DIST" -maxdepth 1 -type f | wc -l
