@@ -73,19 +73,68 @@ jobs:
           echo "::error::could not install MSYS2 packages"
           exit 1
 
-      # MSYS2 ships blueprint-compiler as an extension-less Python script. A
-      # Rust build script launches it through CreateProcess, which cannot run
-      # that, so wrap it in a .cmd shim it can find on PATH.
-      - name: Wrap blueprint-compiler
+      # MSYS2 ships blueprint-compiler as an extension-less Python script, which
+      # CreateProcess cannot launch, so a Rust build script never finds it.
+      # Provide both a .cmd shim and a real .exe wrapper, then prove with rustc
+      # that `Command::new("blueprint-compiler")` resolves before building.
+      - name: Provide blueprint-compiler wrapper
         run: |
           set -euo pipefail
-          if [ ! -e /ucrt64/bin/blueprint-compiler.exe ] && [ -f /ucrt64/bin/blueprint-compiler ]; then
-            printf '@echo off\r\n"%s" "%%~dp0blueprint-compiler" %%*\r\n' \
-              "$(cygpath -w /ucrt64/bin/python.exe)" > /ucrt64/bin/blueprint-compiler.cmd
-            cat /ucrt64/bin/blueprint-compiler.cmd
-          fi
+
+          PYTHON="$(cygpath -w /ucrt64/bin/python.exe)"
+          printf '@echo off\r\n"%s" "%%~dp0blueprint-compiler" %%*\r\n' "$PYTHON" \
+            > /ucrt64/bin/blueprint-compiler.cmd
+
+          # Forward slashes: these end up inside a C string literal.
+          PYTHON_MIXED="$(cygpath -m /ucrt64/bin/python.exe)"
+          SCRIPT_MIXED="$(cygpath -m /ucrt64/bin/blueprint-compiler)"
+
+          cat > /tmp/bpc-wrapper.c <<'EOF'
+          #include <stdio.h>
+          #include <stdlib.h>
+          int main(int argc, char **argv) {
+              char command[65536];
+              int len = snprintf(command, sizeof command, "\"%s\" \"%s\"", BPC_PYTHON, BPC_SCRIPT);
+              for (int i = 1; i < argc; i++) {
+                  len += snprintf(command + len, sizeof command - len, " \"%s\"", argv[i]);
+                  if (len >= (int)sizeof command) {
+                      return 2;
+                  }
+              }
+              return system(command);
+          }
+          EOF
+
+          gcc -O2 -o /ucrt64/bin/blueprint-compiler.exe /tmp/bpc-wrapper.c \
+            -DBPC_PYTHON="\"$PYTHON_MIXED\"" -DBPC_SCRIPT="\"$SCRIPT_MIXED\""
+
+          echo "--- candidates ---"
+          ls -la /ucrt64/bin/blueprint-compiler* || true
+          echo "--- PATH (ucrt entries) ---"
+          echo "$PATH" | tr ':' '\n' | grep -i ucrt64 || true
+
           export PATHEXT=".COM;.EXE;.BAT;.CMD"
-          /ucrt64/bin/blueprint-compiler.cmd --version
+          echo "PATHEXT=$PATHEXT"
+          cat > /tmp/probe.rs <<'EOF'
+          fn main() {
+              match std::process::Command::new("blueprint-compiler")
+                  .arg("--version")
+                  .output()
+              {
+                  Ok(out) => println!(
+                      "probe ok: {} {}",
+                      out.status,
+                      String::from_utf8_lossy(&out.stdout).trim()
+                  ),
+                  Err(error) => {
+                      println!("probe failed: {error}");
+                      std::process::exit(1);
+                  }
+              }
+          }
+          EOF
+          rustc -o /tmp/probe.exe /tmp/probe.rs
+          /tmp/probe.exe
 
       - name: Cache cargo build
         uses: actions/cache@v6
