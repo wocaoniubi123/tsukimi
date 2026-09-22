@@ -81,32 +81,46 @@ jobs:
         run: |
           set -euo pipefail
 
-          PYTHON="$(cygpath -w /ucrt64/bin/python.exe)"
-          printf '@echo off\r\n"%s" "%%~dp0blueprint-compiler" %%*\r\n' "$PYTHON" \
+          PYTHON_WIN="$(cygpath -w /ucrt64/bin/python.exe)"
+          SCRIPT_WIN="$(cygpath -w /ucrt64/bin/blueprint-compiler)"
+          printf '@echo off\r\n"%s" "%%~dp0blueprint-compiler" %%*\r\n' "$PYTHON_WIN" \
             > /ucrt64/bin/blueprint-compiler.cmd
 
-          # Forward slashes: these end up inside a C string literal.
-          PYTHON_MIXED="$(cygpath -m /ucrt64/bin/python.exe)"
-          SCRIPT_MIXED="$(cygpath -m /ucrt64/bin/blueprint-compiler)"
+          # Backslashes are what CreateProcess expects, doubled here because
+          # they are pasted into C string literals below.
+          PYTHON_C="${PYTHON_WIN//\\/\\\\}"
+          SCRIPT_C="${SCRIPT_WIN//\\/\\\\}"
 
-          cat > /tmp/bpc-wrapper.c <<'EOF'
+          # Hand the arguments straight to CreateProcess instead of going
+          # through a shell, so paths and quoting survive untouched.
+          cat > /tmp/bpc-wrapper.c <<EOF
+          #include <process.h>
+          #include <stdint.h>
           #include <stdio.h>
           #include <stdlib.h>
+
           int main(int argc, char **argv) {
-              char command[65536];
-              int len = snprintf(command, sizeof command, "\"%s\" \"%s\"", BPC_PYTHON, BPC_SCRIPT);
-              for (int i = 1; i < argc; i++) {
-                  len += snprintf(command + len, sizeof command - len, " \"%s\"", argv[i]);
-                  if (len >= (int)sizeof command) {
-                      return 2;
-                  }
+              char **args = malloc(sizeof(char *) * (argc + 2));
+              if (!args) {
+                  return 3;
               }
-              return system(command);
+              args[0] = "$PYTHON_C";
+              args[1] = "$SCRIPT_C";
+              for (int i = 1; i < argc; i++) {
+                  args[i + 1] = argv[i];
+              }
+              args[argc + 1] = NULL;
+
+              intptr_t status = _spawnv(_P_WAIT, "$PYTHON_C", (const char *const *)args);
+              if (status == -1) {
+                  perror("spawnv");
+                  return 4;
+              }
+              return (int)status;
           }
           EOF
 
-          gcc -O2 -o /ucrt64/bin/blueprint-compiler.exe /tmp/bpc-wrapper.c \
-            -DBPC_PYTHON="\"$PYTHON_MIXED\"" -DBPC_SCRIPT="\"$SCRIPT_MIXED\""
+          gcc -O2 -o /ucrt64/bin/blueprint-compiler.exe /tmp/bpc-wrapper.c
 
           echo "--- candidates ---"
           ls -la /ucrt64/bin/blueprint-compiler* || true
