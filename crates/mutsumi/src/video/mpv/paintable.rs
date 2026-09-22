@@ -44,7 +44,10 @@ mod imp {
     #[cfg(windows)]
     use libmpv2::Mpv;
     #[cfg(windows)]
-    use std::rc::Rc;
+    use std::{
+        rc::Rc,
+        sync::Arc,
+    };
     #[cfg(all(feature = "profiling", target_os = "linux"))]
     use std::cell::Cell;
     use std::{
