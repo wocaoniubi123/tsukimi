@@ -46,8 +46,15 @@ pub fn run() -> gtk::glib::ExitCode {
 
     // Initialize gettext
     unsafe { setlocale(LocaleCategory::LcAll, String::new()) };
+    #[cfg(windows)]
+    platform::seed_language();
     bind_textdomain_codeset(GETTEXT_PACKAGE, "UTF-8").expect("Failed to set textdomain codeset");
-    bindtextdomain(GETTEXT_PACKAGE, LOCALEDIR).expect("Invalid argument passed to bindtextdomain");
+
+    #[cfg(windows)]
+    let localedir = platform::locale_dir().unwrap_or_else(|| std::path::PathBuf::from(LOCALEDIR));
+    #[cfg(not(windows))]
+    let localedir = std::path::PathBuf::from(LOCALEDIR);
+    bindtextdomain(GETTEXT_PACKAGE, &localedir).expect("Invalid argument passed to bindtextdomain");
 
     textdomain(GETTEXT_PACKAGE).expect("Invalid string passed to textdomain");
 

@@ -78,7 +78,41 @@ fn patch_loader_cache(cache: &Path, dir: &Path) -> Option<PathBuf> {
     Some(target)
 }
 
-fn set_env(key: &str, value: &Path) {
+fn set_env(key: &str, value: impl AsRef<std::ffi::OsStr>) {
     // SAFETY: called before any thread that reads the environment is started.
-    unsafe { env::set_var(key, value) };
+    unsafe { env::set_var(key, value.as_ref()) };
+}
+
+/// Directory holding the gettext catalogues, when the portable package ships
+/// them next to the executable.
+pub fn locale_dir() -> Option<PathBuf> {
+    let dir = app_dir()?.join("share/locale");
+    dir.is_dir().then_some(dir)
+}
+
+/// gettext resolves translations through the POSIX locale variables, which an
+/// ordinary Windows session does not set, so seed them from the language GLib
+/// derived from the system. Both variables matter: `LANGUAGE` is the priority
+/// list gettext prefers, and `LANG` keeps the locale from looking like "C",
+/// which would make gettext ignore `LANGUAGE` altogether.
+pub fn seed_language() {
+    if env::var_os("LANGUAGE").is_some()
+        || env::var_os("LC_ALL").is_some()
+        || env::var_os("LANG").is_some()
+    {
+        return;
+    }
+
+    let names: Vec<String> = gtk::glib::language_names()
+        .iter()
+        .map(|name| name.to_string())
+        .filter(|name| !name.is_empty() && name != "C")
+        .collect();
+
+    let Some((first, _)) = names.split_first() else {
+        return;
+    };
+
+    set_env("LANG", first);
+    set_env("LANGUAGE", names.join(":"));
 }

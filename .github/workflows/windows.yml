@@ -220,6 +220,25 @@ jobs:
             cp -f "/ucrt64/lib/gstreamer-1.0/libgst${plugin}.dll" "$DIST/lib/gstreamer-1.0/" 2>/dev/null || true
           done
 
+          # Translations: the client's own catalogues, compiled from the po
+          # files, plus the ones GTK, GLib and libadwaita use for their strings.
+          mkdir -p "$DIST/share/locale"
+          for po in crates/tsukimi/po/*.po; do
+            lang="$(basename "$po" .po)"
+            mkdir -p "$DIST/share/locale/$lang/LC_MESSAGES"
+            msgfmt -o "$DIST/share/locale/$lang/LC_MESSAGES/tsukimi.mo" "$po" \
+              || echo "::warning::msgfmt failed for $lang"
+          done
+          for messages in /ucrt64/share/locale/*/LC_MESSAGES; do
+            lang="$(basename "$(dirname "$messages")")"
+            mkdir -p "$DIST/share/locale/$lang/LC_MESSAGES"
+            cp -f "$messages"/gtk40.mo "$messages"/gtk40-properties.mo \
+              "$messages"/glib20.mo "$messages"/libadwaita.mo \
+              "$messages"/gdk-pixbuf.mo "$messages"/gettext-runtime.mo \
+              "$DIST/share/locale/$lang/LC_MESSAGES/" 2>/dev/null || true
+          done
+          echo "translation catalogues: $(find "$DIST/share/locale" -name '*.mo' | wc -l)"
+
           # Runtime libraries: the executable's closure plus whatever the
           # dlopened plugins and loaders need, so nothing is missing at run time.
           collect_deps() {

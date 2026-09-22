@@ -13,8 +13,10 @@ pub const MAX_SCALE: f32 = 1.10;
 const ANIMATION_DURATION: u32 = 250;
 const CORNER_RADIUS: f32 = 10.0;
 /// Maximum tilt angle (degrees) for the parallax effect.
+#[cfg_attr(windows, allow(dead_code))]
 const MAX_TILT_ANGLE: f32 = 15.0;
 /// Perspective depth (pixels) for the 3D projection.
+#[cfg_attr(windows, allow(dead_code))]
 const PERSPECTIVE_DEPTH: f32 = 800.0;
 
 mod imp {
@@ -139,8 +141,15 @@ mod imp {
 
             // Tilt angles in degrees, modulated by progress so they ease in/out
             // with the hover animation rather than jumping when the cursor enters.
-            let tilt_y_deg = nx * super::MAX_TILT_ANGLE * progress; // yaw  (cursor left/right)
-            let tilt_x_deg = -ny * super::MAX_TILT_ANGLE * progress; // pitch (cursor up/down)
+            //
+            // GSK cannot render 3-D transforms on Windows: the node they are
+            // applied to comes out corrupted (a magenta block), so the tilt is
+            // skipped there and the card settles for a plain 2-D hover.
+            #[cfg(not(windows))]
+            let (tilt_y_deg, tilt_x_deg) = (
+                nx * super::MAX_TILT_ANGLE * progress, // yaw  (cursor left/right)
+                -ny * super::MAX_TILT_ANGLE * progress, // pitch (cursor up/down)
+            );
 
             let child_snapshot = gtk::Snapshot::new();
             // push_opacity with a value strictly below 1.0 forces the GPU renderer
@@ -199,6 +208,7 @@ mod imp {
                 return;
             };
 
+            #[cfg(not(windows))]
             let transform = gsk::Transform::new()
                 .translate_3d(&graphene::Point3D::new(w / 2.0, h / 2.0, 0.0))
                 .perspective(super::PERSPECTIVE_DEPTH)
@@ -206,6 +216,14 @@ mod imp {
                 .rotate_3d(tilt_x_deg, &graphene::Vec3::x_axis())
                 .scale(scale, scale)
                 .translate_3d(&graphene::Point3D::new(-w / 2.0, -h / 2.0, 0.0));
+
+            // The same scaling expressed with affine operations only, for the
+            // platforms where the 3-D path is broken.
+            #[cfg(windows)]
+            let transform = gsk::Transform::new()
+                .translate(&graphene::Point::new(w / 2.0, h / 2.0))
+                .scale(scale, scale)
+                .translate(&graphene::Point::new(-w / 2.0, -h / 2.0));
 
             snapshot.append_node(gsk::TransformNode::new(&node, Some(&transform)));
         }
