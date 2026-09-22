@@ -73,6 +73,20 @@ jobs:
           echo "::error::could not install MSYS2 packages"
           exit 1
 
+      # MSYS2 ships blueprint-compiler as an extension-less Python script. A
+      # Rust build script launches it through CreateProcess, which cannot run
+      # that, so wrap it in a .cmd shim it can find on PATH.
+      - name: Wrap blueprint-compiler
+        run: |
+          set -euo pipefail
+          if [ ! -e /ucrt64/bin/blueprint-compiler.exe ] && [ -f /ucrt64/bin/blueprint-compiler ]; then
+            printf '@echo off\r\n"%s" "%%~dp0blueprint-compiler" %%*\r\n' \
+              "$(cygpath -w /ucrt64/bin/python.exe)" > /ucrt64/bin/blueprint-compiler.cmd
+            cat /ucrt64/bin/blueprint-compiler.cmd
+          fi
+          export PATHEXT=".COM;.EXE;.BAT;.CMD"
+          /ucrt64/bin/blueprint-compiler.cmd --version
+
       - name: Cache cargo build
         uses: actions/cache@v6
         with:
@@ -83,6 +97,9 @@ jobs:
       - name: Build
         run: |
           set -euo pipefail
+          # Rust resolves executables through PATHEXT, which the shell does not
+          # necessarily export.
+          export PATHEXT=".COM;.EXE;.BAT;.CMD"
           cargo build --release --locked
           ls -la target/release/tsukimi.exe
 
