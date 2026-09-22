@@ -33,7 +33,13 @@ jobs:
           msystem: UCRT64
           update: false
           cache: true
-          install: >-
+
+      # Installed here rather than through setup-msys2 so a slow mirror can be
+      # retried instead of failing the whole job.
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          PACKAGES="
             git
             unzip
             mingw-w64-ucrt-x86_64-toolchain
@@ -55,6 +61,17 @@ jobs:
             mingw-w64-ucrt-x86_64-gst-plugins-ugly
             mingw-w64-ucrt-x86_64-gst-libav
             mingw-w64-ucrt-x86_64-gettext
+          "
+          for attempt in 1 2 3 4; do
+            if pacman -S --needed --noconfirm --disable-download-timeout $PACKAGES; then
+              echo "installed on attempt $attempt"
+              exit 0
+            fi
+            echo "::warning::pacman run $attempt failed, retrying"
+            sleep 15
+          done
+          echo "::error::could not install MSYS2 packages"
+          exit 1
 
       - name: Cache cargo build
         uses: actions/cache@v6
