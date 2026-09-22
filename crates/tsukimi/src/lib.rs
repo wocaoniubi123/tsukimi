@@ -10,6 +10,8 @@ mod gstl;
 mod macros;
 
 mod mpris_common;
+#[cfg(windows)]
+mod platform;
 mod ui;
 mod utils;
 
@@ -36,6 +38,10 @@ const APP_RESOURCE_PATH: &str = "/moe/tsuna/tsukimi";
 const GRESOURCE_FILE: &str = "tsukimi.gresource";
 
 pub fn run() -> gtk::glib::ExitCode {
+    // Must happen before GTK, GLib and GStreamer read their environment.
+    #[cfg(windows)]
+    platform::prepare_environment();
+
     Args::parse().init();
 
     // Initialize gettext
@@ -59,7 +65,20 @@ pub fn run() -> gtk::glib::ExitCode {
 }
 
 fn register_gio_resources() {
-    let path = std::path::Path::new(PKGDATADIR).join(GRESOURCE_FILE);
+    // Portable builds keep the bundle next to the executable instead of in a
+    // system-wide data directory.
+    #[cfg(windows)]
+    let candidates = platform::app_dir()
+        .map(|dir| vec![dir.join("share/tsukimi").join(GRESOURCE_FILE), dir.join(GRESOURCE_FILE)])
+        .unwrap_or_default();
+    #[cfg(not(windows))]
+    let candidates: Vec<std::path::PathBuf> = Vec::new();
+
+    let path = std::iter::once(std::path::Path::new(PKGDATADIR).join(GRESOURCE_FILE))
+        .chain(candidates)
+        .find(|path| path.exists())
+        .expect("Failed to find tsukimi.gresource");
+
     let resources = gtk::gio::Resource::load(path).expect("Failed to load resources.");
     gtk::gio::resources_register(&resources);
 }

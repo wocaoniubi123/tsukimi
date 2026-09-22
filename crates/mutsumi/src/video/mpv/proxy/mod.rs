@@ -11,9 +11,14 @@ pub use profiling::{
     ProxyProfilingGuard,
     start_proxy_profiling,
 };
-pub use shm::{
+pub use crate::video::frame::{
+    FRAME_CHANNEL,
     ShmFrame,
     ShmMemoryFormat,
+    SurfaceContentUpdate,
+    SurfaceUpdate,
+    VIEWPORT_CHANNEL,
+    Viewport,
 };
 
 use std::{
@@ -26,7 +31,6 @@ use std::{
     rc::Rc,
 };
 
-use once_cell::sync::Lazy;
 use tokio::sync::watch;
 use wl_proxy::{
     baseline::Baseline,
@@ -142,64 +146,6 @@ pub struct DmabufFrame {
 impl Drop for DmabufFrame {
     fn drop(&mut self) {
         send_proxy_event(&self.event_tx, ProxyEvent::ReleaseBuffer(self.buffer_id));
-    }
-}
-
-pub enum SurfaceContentUpdate {
-    Unchanged,
-    Frame(DmabufFrame),
-    Shm(shm::ShmFrame),
-    Clear,
-}
-
-pub struct SurfaceUpdate {
-    pub content: SurfaceContentUpdate,
-    pub frame_callbacks: Option<FrameCallbacks>,
-}
-
-pub static FRAME_CHANNEL: Lazy<DmabufFrameChannel> = Lazy::new(|| {
-    let (tx, rx) = flume::unbounded::<SurfaceUpdate>();
-    DmabufFrameChannel { tx, rx }
-});
-
-pub struct DmabufFrameChannel {
-    pub tx: flume::Sender<SurfaceUpdate>,
-    pub rx: flume::Receiver<SurfaceUpdate>,
-}
-
-pub static VIEWPORT_CHANNEL: Lazy<ViewportChannel> = Lazy::new(|| {
-    let (tx, _) = watch::channel(None);
-    ViewportChannel { tx }
-});
-
-#[derive(Debug, Default, Clone, Copy, PartialEq)]
-pub struct Viewport {
-    pub width: i32,
-    pub height: i32,
-    pub scale: f64,
-}
-
-impl Viewport {
-    pub fn new(width: i32, height: i32, scale: f64) -> Self {
-        Self {
-            width,
-            height,
-            scale,
-        }
-    }
-}
-
-pub struct ViewportChannel {
-    tx: watch::Sender<Option<Viewport>>,
-}
-
-impl ViewportChannel {
-    pub fn send(&self, viewport: Viewport) {
-        self.tx.send_replace(Some(viewport));
-    }
-
-    fn subscribe(&self) -> watch::Receiver<Option<Viewport>> {
-        self.tx.subscribe()
     }
 }
 

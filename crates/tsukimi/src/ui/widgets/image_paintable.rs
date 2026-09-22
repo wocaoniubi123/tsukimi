@@ -1,3 +1,4 @@
+#[cfg(target_os = "linux")]
 use std::{
     rc::Rc,
     time::Duration,
@@ -10,17 +11,24 @@ use anyhow::{
 use gtk::{
     gdk,
     gio,
+    prelude::*,
+};
+#[cfg(target_os = "linux")]
+use gtk::{
     glib,
     graphene,
-    prelude::*,
     subclass::prelude::*,
 };
+#[cfg(target_os = "linux")]
 use tracing::warn;
 
+#[cfg(target_os = "linux")]
 use crate::utils::spawn;
 
+#[cfg(target_os = "linux")]
 const DEFAULT_ANIMATION_FRAME_DELAY: Duration = Duration::from_millis(100);
 
+#[cfg(target_os = "linux")]
 mod imp {
     use std::cell::RefCell;
 
@@ -102,6 +110,7 @@ mod imp {
     }
 }
 
+#[cfg(target_os = "linux")]
 glib::wrapper! {
     /// A paintable that displays an animated image decoded by glycin.
     ///
@@ -112,6 +121,7 @@ glib::wrapper! {
         @implements gdk::Paintable;
 }
 
+#[cfg(target_os = "linux")]
 pub async fn paintable_from_file(
     file: gio::File, cancellable: Option<gio::Cancellable>,
 ) -> Result<gdk::Paintable> {
@@ -134,6 +144,21 @@ pub async fn paintable_from_file(
     }
 }
 
+/// glycin is Unix-only, so the remaining platforms decode through the loader
+/// GTK ships itself; an animated image shows its first frame.
+#[cfg(not(target_os = "linux"))]
+pub async fn paintable_from_file(
+    file: gio::File, cancellable: Option<gio::Cancellable>,
+) -> Result<gdk::Paintable> {
+    if cancellable.as_ref().is_some_and(|c| c.is_cancelled()) {
+        bail!("image load cancelled");
+    }
+
+    let texture = gdk::Texture::from_file(&file)?;
+    Ok(texture.upcast())
+}
+
+#[cfg(target_os = "linux")]
 impl ImagePaintable {
     fn new(image: glycin::Image, frame: glycin::Frame) -> Self {
         let obj = glib::Object::new::<Self>();

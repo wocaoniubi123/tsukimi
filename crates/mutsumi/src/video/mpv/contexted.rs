@@ -1,4 +1,9 @@
+#[cfg(target_os = "linux")]
 use super::epoxy_library;
+use libc::{
+    LC_NUMERIC,
+    setlocale,
+};
 
 //This struct is actually noting, so it can be safely sent across threads without synchronization.
 #[derive(Clone, Copy)]
@@ -9,12 +14,12 @@ pub struct ContextedMPV {
 impl Default for ContextedMPV {
     fn default() -> Self {
         unsafe {
-            use libc::{
-                LC_NUMERIC,
-                setlocale,
-            };
             setlocale(LC_NUMERIC, c"C".as_ptr() as *const _);
         }
+        // The GL render path resolves entry points through libepoxy. Only the
+        // Linux embedder needs it up front; on Windows playback goes through
+        // the render API instead.
+        #[cfg(target_os = "linux")]
         epoxy_library();
         Self {
             mpv: MpvActor::new(),
@@ -24,13 +29,20 @@ impl Default for ContextedMPV {
 
 use crate::{
     TrackSelection,
-    arm_mpv_proxy,
     video::{
         MpvActor,
         MpvValue,
         MpvValueType,
     },
 };
+
+/// mpv re-reads `WAYLAND_DISPLAY` on every load, so the proxy has to be armed
+/// before each `loadfile`. Windows has no proxy to arm.
+#[inline]
+fn arm_proxy() {
+    #[cfg(target_os = "linux")]
+    crate::arm_mpv_proxy();
+}
 
 impl ContextedMPV {
     pub fn shutdown(&self) {
@@ -105,7 +117,7 @@ impl ContextedMPV {
 
     pub fn load_video(&self, url: &str) {
         // mpv will read "WAYLAND_DISPLAY" everytime on loading file
-        arm_mpv_proxy();
+        arm_proxy();
 
         self.mpv.command("loadfile", &[url, "replace"]);
     }
@@ -117,7 +129,7 @@ impl ContextedMPV {
             return;
         }
 
-        arm_mpv_proxy();
+        arm_proxy();
 
         let mut iter = urls.iter();
         if let Some(first) = iter.next() {
@@ -129,7 +141,7 @@ impl ContextedMPV {
     }
 
     pub fn set_playlist_pos(&self, pos: i64) {
-        arm_mpv_proxy();
+        arm_proxy();
         self.mpv.set_property("playlist-pos", pos);
     }
 
@@ -150,7 +162,7 @@ impl ContextedMPV {
     }
 
     pub fn playlist_add(&self, url: &str, index: i64) {
-        arm_mpv_proxy();
+        arm_proxy();
         self.mpv
             .command("loadfile", &[url, "insert-at", &index.to_string()]);
     }

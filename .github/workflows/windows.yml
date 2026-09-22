@@ -1,0 +1,141 @@
+name: Windows
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "main"
+      - "windows"
+  pull_request:
+    branches:
+      - "main"
+      - "windows"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build (UCRT64)
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          cache: true
+          install: >-
+            git
+            unzip
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-rust
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-gdk-pixbuf2
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-blueprint-compiler
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-libepoxy
+            mingw-w64-ucrt-x86_64-mpv
+            mingw-w64-ucrt-x86_64-gstreamer
+            mingw-w64-ucrt-x86_64-gst-plugins-base
+            mingw-w64-ucrt-x86_64-gst-plugins-good
+            mingw-w64-ucrt-x86_64-gst-plugins-bad
+            mingw-w64-ucrt-x86_64-gst-plugins-ugly
+            mingw-w64-ucrt-x86_64-gst-libav
+            mingw-w64-ucrt-x86_64-gettext
+
+      - name: Cache cargo build
+        uses: actions/cache@v6
+        with:
+          path: target
+          key: windows-target-${{ hashFiles('Cargo.lock') }}
+          restore-keys: windows-target-
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cargo build --release --locked
+          ls -la target/release/tsukimi.exe
+
+      - name: Assemble portable build
+        run: |
+          set -euo pipefail
+
+          DIST=dist/Tsukimi
+          rm -rf dist
+          mkdir -p "$DIST"
+
+          cp target/release/tsukimi.exe "$DIST/"
+
+          # Runtime libraries: everything the linker or dlopen can reach.
+          ldd target/release/tsukimi.exe |
+            awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^\/ucrt64\//) print $i }' |
+            sort -u |
+            while read -r dll; do cp -f "$dll" "$DIST/"; done
+          cp -f /ucrt64/bin/libepoxy-0.dll "$DIST/"
+
+          # Application resources (UI templates, icons, stylesheet).
+          mkdir -p "$DIST/share/tsukimi"
+          glib-compile-resources crates/tsukimi/resources/resources.gresource.xml \
+            --sourcedir=crates/tsukimi/resources \
+            --target="$DIST/share/tsukimi/tsukimi.gresource"
+
+          # GSettings schemas: GTK's, libadwaita's and ours.
+          mkdir -p "$DIST/share/glib-2.0/schemas"
+          cp -f /ucrt64/share/glib-2.0/schemas/*.xml "$DIST/share/glib-2.0/schemas/"
+          cp -f crates/tsukimi/resources/moe.tsuna.tsukimi.gschema.xml "$DIST/share/glib-2.0/schemas/"
+          glib-compile-schemas "$DIST/share/glib-2.0/schemas"
+
+          # Icon themes (libadwaita draws its icons from Adwaita).
+          mkdir -p "$DIST/share/icons"
+          cp -r /ucrt64/share/icons/Adwaita "$DIST/share/icons/"
+          cp -r /ucrt64/share/icons/hicolor "$DIST/share/icons/" 2>/dev/null || true
+
+          # gdk-pixbuf loaders, with the build prefix replaced by a placeholder
+          # that the application resolves at startup.
+          LOADERS="$DIST/lib/gdk-pixbuf-2.0/2.10.0/loaders"
+          mkdir -p "$LOADERS"
+          cp -f /ucrt64/lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll "$LOADERS/" 2>/dev/null || true
+          if ls "$LOADERS"/*.dll >/dev/null 2>&1; then
+            (
+              cd "$DIST"
+              gdk-pixbuf-query-loaders lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
+                > lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
+            )
+            sed -i 's#"lib/gdk-pixbuf-2.0/2.10.0/loaders/#"@APPDIR@/lib/gdk-pixbuf-2.0/2.10.0/loaders/#g' \
+              "$DIST/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+            head -3 "$DIST/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+          else
+            echo "no gdk-pixbuf loaders found, images will not load" >&2
+          fi
+
+          # GStreamer plugins used for music playback.
+          mkdir -p "$DIST/lib/gstreamer-1.0"
+          for plugin in coreelements playback typefindfunctions audioconvert \
+            audioresample audioparsers autodetect volume wavparse isomp4 matroska \
+            ogg vorbis opus flac id3demux icydemux mpg123 lame soup tcp \
+            d3d11 mediafoundation wasapi directsoundsink; do
+            cp -f "/ucrt64/lib/gstreamer-1.0/libgst${plugin}.dll" "$DIST/lib/gstreamer-1.0/" 2>/dev/null || true
+          done
+
+          du -sh "$DIST"
+          find "$DIST" -maxdepth 1 -type f | wc -l
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: tsukimi-windows-x86_64
+          path: dist/Tsukimi
+          compression-level: 6

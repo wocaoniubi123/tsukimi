@@ -153,7 +153,7 @@ impl MediaContentViewer {
         match paintable_from_file(file, None).await {
             Ok(paintable) => self.view_image(&paintable),
             Err(error) => {
-                warn!("Could not load image with glycin: {error}");
+                warn!("Could not load image: {error}");
                 self.show_fallback();
             }
         }

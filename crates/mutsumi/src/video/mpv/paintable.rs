@@ -25,21 +25,36 @@ mod imp {
         ShmMemoryFormat,
         SurfaceContentUpdate,
         SurfaceUpdate,
-        create_mpv_proxy,
         video::{
             MutsumiMpvError,
             mpv::contexted::ContextedMPV,
         },
     };
-    #[cfg(feature = "profiling")]
+    #[cfg(target_os = "linux")]
+    use crate::create_mpv_proxy;
+    #[cfg(windows)]
+    use crate::{
+        VIEWPORT_CHANNEL,
+        video::mpv::{
+            MPV_CTRL,
+            MpvMessage,
+            winrender::WinRenderer,
+        },
+    };
+    #[cfg(windows)]
+    use libmpv2::Mpv;
+    #[cfg(windows)]
+    use std::rc::Rc;
+    #[cfg(all(feature = "profiling", target_os = "linux"))]
     use std::cell::Cell;
     use std::{
         cell::RefCell,
-        os::fd::AsRawFd,
         sync::OnceLock,
     };
+    #[cfg(target_os = "linux")]
+    use std::os::fd::AsRawFd;
 
-    #[cfg(feature = "profiling")]
+    #[cfg(all(feature = "profiling", target_os = "linux"))]
     use crate::video::mpv::proxy::profiling::{
         self,
         Stage,
@@ -58,7 +73,7 @@ mod imp {
         pub mpv: ContextedMPV,
         pub texture: RefCell<Option<gdk::Texture>>,
         pub frame_callbacks: RefCell<Vec<FrameCallbacks>>,
-        #[cfg(feature = "profiling")]
+        #[cfg(all(feature = "profiling", target_os = "linux"))]
         pub pending_snapshot_frame_id: Cell<Option<u64>>,
     }
 
@@ -88,10 +103,11 @@ mod imp {
                         } = update;
 
                         match content {
+                            #[cfg(target_os = "linux")]
                             SurfaceContentUpdate::Frame(frame) => {
-                                #[cfg(feature = "profiling")]
+                                #[cfg(all(feature = "profiling", target_os = "linux"))]
                                 let profile_frame_id = frame.profile_frame_id;
-                                #[cfg(feature = "profiling")]
+                                #[cfg(all(feature = "profiling", target_os = "linux"))]
                                 profiling::mark(profile_frame_id, Stage::TextureBuildStarted);
 
                                 let previous = obj.imp().texture.borrow();
@@ -120,7 +136,7 @@ mod imp {
                                     builder.build_with_release_func(move || drop(frame))
                                 } {
                                     Ok(texture) => {
-                                        #[cfg(feature = "profiling")]
+                                        #[cfg(all(feature = "profiling", target_os = "linux"))]
                                         {
                                             profiling::mark(profile_frame_id, Stage::TextureBuilt);
                                             obj.imp()
@@ -151,7 +167,7 @@ mod imp {
                                 obj.replace_texture(Some(gdk::Texture::from(texture)));
                             }
                             SurfaceContentUpdate::Clear => {
-                                #[cfg(feature = "profiling")]
+                                #[cfg(all(feature = "profiling", target_os = "linux"))]
                                 obj.imp().pending_snapshot_frame_id.set(None);
                                 obj.replace_texture(None);
                             }
@@ -202,7 +218,7 @@ mod imp {
                     &gtk::graphene::Rect::new(0.0, 0.0, width as f32, height as f32),
                 );
 
-                #[cfg(feature = "profiling")]
+                #[cfg(all(feature = "profiling", target_os = "linux"))]
                 profiling::mark(self.pending_snapshot_frame_id.take(), Stage::Snapshot);
             }
 
@@ -214,6 +230,7 @@ mod imp {
     }
 
     impl MutsumiVideoSink {
+        #[cfg(target_os = "linux")]
         fn setup_mpv(&self) {
             let display = gdk::Display::default().expect("Could not connect to display");
             let formats = display.dmabuf_formats();
@@ -236,6 +253,63 @@ mod imp {
                 .collect();
 
             create_mpv_proxy(format_pairs);
+        }
+
+        /// Windows has no compositor to hand frames over: mpv renders into
+        /// memory on its own thread and the result arrives as a texture.
+        #[cfg(windows)]
+        fn setup_mpv(&self) {
+            let (tx, rx) = tokio::sync::oneshot::channel::<Arc<Mpv>>();
+            if MPV_CTRL
+                .tx
+                .send(MpvMessage::InitRenderContext(tx))
+                .is_err()
+            {
+                tracing::error!(target: "mutsumi::mpv", "mpv actor is unavailable");
+                return;
+            }
+
+            let obj = self.obj();
+            glib::spawn_future_local(glib::clone!(
+                #[weak]
+                obj,
+                async move {
+                    let Ok(mpv) = rx.await else {
+                        return;
+                    };
+                    let renderer = Rc::new(WinRenderer::new(mpv));
+
+                    glib::spawn_future_local({
+                        let renderer = Rc::clone(&renderer);
+                        async move {
+                            let mut viewport_rx = VIEWPORT_CHANNEL.subscribe();
+                            // The widget may have been allocated before this
+                            // task existed, so pick up the current value too.
+                            if let Some(viewport) = *viewport_rx.borrow_and_update() {
+                                renderer.set_viewport(viewport);
+                            }
+                            while viewport_rx.changed().await.is_ok() {
+                                if let Some(viewport) = *viewport_rx.borrow_and_update() {
+                                    renderer.set_viewport(viewport);
+                                }
+                            }
+                        }
+                    });
+
+                    while let Ok(frame) = renderer.frames().recv_async().await {
+                        let bytes = glib::Bytes::from_owned(frame.data);
+                        let texture = gdk::MemoryTexture::new(
+                            frame.width,
+                            frame.height,
+                            gdk::MemoryFormat::B8g8r8a8Premultiplied,
+                            &bytes,
+                            frame.stride,
+                        );
+                        obj.replace_texture(Some(gdk::Texture::from(texture)));
+                        obj.invalidate_contents();
+                    }
+                }
+            ));
         }
 
         pub fn throw_error(&self, code: MutsumiMpvError) {
@@ -286,7 +360,7 @@ impl MutsumiVideoSink {
         ));
     }
 
-    fn replace_texture(&self, texture: Option<gdk::Texture>) {
+    pub(crate) fn replace_texture(&self, texture: Option<gdk::Texture>) {
         let old_size = (self.intrinsic_width(), self.intrinsic_height());
         self.imp().texture.replace(texture);
         let new_size = (self.intrinsic_width(), self.intrinsic_height());

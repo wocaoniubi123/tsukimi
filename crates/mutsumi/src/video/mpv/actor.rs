@@ -178,7 +178,13 @@ impl MpvActor {
             mpv.set_option("keep-open", "yes")?;
             mpv.set_option("auto-window-resize", "no")?;
 
+            // Linux draws through a Wayland surface, so the GPU renderer is the
+            // one that matters. Windows hands the frames to GTK itself and
+            // uses the render API, whose output is selected by the API type.
+            #[cfg(target_os = "linux")]
             mpv.set_option("vo", "gpu-next")?;
+            #[cfg(not(target_os = "linux"))]
+            mpv.set_option("vo", "libmpv")?;
 
             if let Some(initializer) = MPV_INITIALIZER.get() {
                 initializer(mpv)?;

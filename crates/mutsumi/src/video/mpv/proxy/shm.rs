@@ -34,24 +34,15 @@ use wl_proxy::{
 };
 
 use super::SharedState;
+use crate::video::frame::{
+    ShmFrame,
+    ShmMemoryFormat,
+};
 use std::cell::RefCell;
 
 struct ShmPoolState {
     file: File,
     size: Cell<u64>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ShmMemoryFormat {
-    Argb8888,
-    Xrgb8888,
-}
-pub struct ShmFrame {
-    pub width: i32,
-    pub height: i32,
-    pub stride: usize,
-    pub format: ShmMemoryFormat,
-    pub data: Vec<u8>,
 }
 
 pub struct BufferInfo {

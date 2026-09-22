@@ -5,13 +5,19 @@ mod area;
 mod contexted;
 mod logging;
 mod paintable;
+#[cfg(target_os = "linux")]
 mod proxy;
+#[cfg(windows)]
+mod winrender;
 
 pub use actor::*;
 pub use area::*;
 pub use contexted::*;
 pub use paintable::*;
+#[cfg(target_os = "linux")]
 pub use proxy::*;
+#[cfg(windows)]
+pub use winrender::*;
 
 use flume::{
     Receiver,

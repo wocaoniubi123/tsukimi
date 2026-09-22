@@ -45,7 +45,6 @@ xxhash-rust = { workspace = true, features = ["xxh3"] }
 futures-util.workspace = true
 itertools.workspace = true
 moka = { workspace = true, features = ["future"] }
-glycin = { workspace = true, features = ["gdk4", "tokio"] }
 
 mutsumi.workspace = true
 dandanapi-client.workspace = true
@@ -62,6 +61,9 @@ build_libmpv = []
 
 [target.'cfg(target_os = "linux")'.dependencies]
 mpris-server.workspace = true
+# glycin decodes images in a sandbox over Unix sockets, so it is Linux-only;
+# other platforms fall back to the loader GTK ships.
+glycin = { workspace = true, features = ["gdk4", "tokio"] }
 gdk-x11 = { workspace = true, features = [
   "v4_18",
   "xlib",

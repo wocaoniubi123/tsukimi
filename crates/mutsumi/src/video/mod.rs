@@ -1,5 +1,6 @@
 mod backend;
 mod error;
+mod frame;
 mod layout;
 mod mpv;
 mod play;
@@ -7,6 +8,7 @@ mod player;
 
 pub use backend::*;
 pub use error::*;
+pub use frame::*;
 pub use layout::*;
 pub use mpv::*;
 pub use play::*;
