@@ -87,11 +87,11 @@
       <default>300</default>
       <summary>Default mpv-cache-time</summary>
     </key>
-    <!-- Concurrent server requests. A single slot means one slow response
-         holds up every other one, including the image downloads queued behind
-         the library listings. -->
+    <!-- Concurrent server requests. A single slow response used to hold up
+         everything queued behind it, including the requests a page needs to
+         become usable at all. -->
     <key name="threads" type="i">
-      <default>4</default>
+      <default>8</default>
       <summary>Default threads</summary>
     </key>
     <key name="pic-opacity" type="i">

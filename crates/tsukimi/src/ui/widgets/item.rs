@@ -879,7 +879,16 @@ impl ItemPage {
                     );
                     imp.seasonshortu.set_items(season_list.to_owned());
                     imp.season_list_vec.replace(season_list);
-                    self.on_season_selected(None, imp.seasonlist.get()).await;
+
+                    // Without an episode from "next up" to follow, no season is
+                    // selected and `on_season_selected` would clear the episode
+                    // list, leaving the series with nothing to pick. Select the
+                    // first season instead, which loads its episodes.
+                    if imp.seasonlist.selected() == 0 && imp.seasonlist.n_items() > 1 {
+                        imp.seasonlist.set_selected(1);
+                    } else {
+                        self.on_season_selected(None, imp.seasonlist.get()).await;
+                    }
                 }
                 CacheEvent::Error(e) => {
                     self.toast(e.to_user_facing());
