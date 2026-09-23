@@ -134,7 +134,7 @@ impl PictureLoader {
     }
 
     pub(crate) fn new_for_source(source: PictureSource) -> Self {
-        let obj: Self = match source {
+        let obj: Self = match &source {
             PictureSource::Item {
                 id,
                 tag,
@@ -142,19 +142,26 @@ impl PictureLoader {
                 image_index,
             } => {
                 let obj: Self = glib::Object::builder()
-                    .property("id", id)
-                    .property("tag", tag)
+                    .property("id", id.as_str())
+                    .property("tag", tag.as_str())
                     .build();
-                obj.imp().imagetype.set(image_type);
-                obj.imp().image_index.replace(image_index);
+                obj.imp().imagetype.set(*image_type);
+                obj.imp().image_index.replace(*image_index);
                 obj
             }
             PictureSource::Url { url } => glib::Object::builder()
                 .property("id", "")
-                .property("url", url)
+                .property("url", url.as_str())
                 .build(),
             PictureSource::User { .. } => unreachable!(),
         };
+
+        // `constructed()` schedules the first load through an idle callback,
+        // which never ran here, leaving every freshly built loader spinning
+        // forever. The source is already known at this point, so load it
+        // directly, exactly like `reload_source` does.
+        obj.load_source(source);
+
         obj
     }
 
