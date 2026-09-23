@@ -246,7 +246,23 @@ where
 
 pub async fn resolve_picture_file(source: PictureSource) -> Result<gio::File> {
     match source {
-        PictureSource::Url { url, .. } => Ok(gio::File::for_uri(&url)),
+        PictureSource::Url { url, .. } => {
+            // GIO's HTTP support is not dependable here: the URL may be
+            // relative and carries no credentials. Windows fetches those
+            // pictures through the regular client instead, landing them in the
+            // same on-disk cache as every other picture.
+            #[cfg(windows)]
+            {
+                let path =
+                    spawn_tokio(async move { JELLYFIN_CLIENT.get_image_from_url(&url).await })
+                        .await?;
+                Ok(gio::File::for_path(path))
+            }
+            #[cfg(not(windows))]
+            {
+                Ok(gio::File::for_uri(&url))
+            }
+        }
         source => {
             let path = spawn_tokio(async move { JELLYFIN_CLIENT.get_image(source).await }).await?;
             Ok(gio::File::for_path(path))

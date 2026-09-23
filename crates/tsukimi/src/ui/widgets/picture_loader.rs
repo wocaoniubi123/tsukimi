@@ -217,6 +217,10 @@ impl PictureLoader {
 
     fn load_source(&self, source: PictureSource) {
         let load_token = self.new_request();
+        tracing::debug!(
+            "picture: requested (generation {})",
+            load_token.generation
+        );
         let weak_self = self.downgrade();
         spawn(async move {
             let paintable = Self::load_paintable(load_token.clone(), source).await;
@@ -224,6 +228,7 @@ impl PictureLoader {
                 return;
             };
             if !load_token.is_current_for(&obj) {
+                tracing::debug!("picture: dropped stale result (generation {})", load_token.generation);
                 return;
             }
             if let Ok(paintable) = paintable {
@@ -267,12 +272,14 @@ impl PictureLoader {
             }
         }
 
+        tracing::debug!("picture: resolving source");
         let file = resolve_picture_file(source)
             .await
             .inspect_err(|error| tracing::warn!("picture: could not resolve source: {error}"))?;
         if load_token.is_cancelled() {
             bail!("image load cancelled");
         }
+        tracing::debug!("picture: decoding {}", file.parse_name());
         Self::load_file(file, &load_token).await
     }
 

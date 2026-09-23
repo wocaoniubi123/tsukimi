@@ -726,6 +726,66 @@ impl JellyfinClient {
         Ok(path)
     }
 
+    /// Downloads a picture the server handed over as a URL rather than as an
+    /// item id. The URL can be relative and carries no credentials, so it is
+    /// resolved against the session and fetched with the session headers,
+    /// landing in the same cache as every other picture.
+    pub async fn get_image_from_url(&self, url: &str) -> Result<PathBuf> {
+        let mut path = jellyfin_cache_path().await;
+        path.push(generate_hash(url));
+
+        if tokio::fs::metadata(&path).await.is_ok_and(|m| m.is_file()) {
+            return Ok(path);
+        }
+
+        let session = self.session();
+        let Some((base, headers)) = session.url_headers.as_ref() else {
+            bail!("Client not initialized");
+        };
+
+        let root = base.join("/")?;
+        let candidates = [
+            base.join(url).ok(),
+            root.join(url.trim_start_matches('/')).ok(),
+        ];
+
+        let mut last_error = None;
+        for candidate in candidates.into_iter().flatten() {
+            let response = match self
+                .client
+                .get(candidate)
+                .headers(headers.clone())
+                .send()
+                .await
+            {
+                Ok(response) => response,
+                Err(error) => {
+                    last_error = Some(anyhow!(error));
+                    continue;
+                }
+            };
+
+            let response = match response.error_for_status() {
+                Ok(response) => response,
+                Err(error) => {
+                    last_error = Some(anyhow!(error));
+                    continue;
+                }
+            };
+
+            match response.bytes().await {
+                Ok(bytes) if !bytes.is_empty() => {
+                    tokio::fs::write(&path, bytes).await?;
+                    return Ok(path);
+                }
+                Ok(_) => last_error = Some(anyhow!("Image is empty")),
+                Err(error) => last_error = Some(anyhow!(error)),
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| anyhow!("No usable image URL")))
+    }
+
     // Only support base64 encoded images
     pub async fn post_image<B>(
         &self, id: &str, image_type: &str, bytes: B, content_type: &str,
