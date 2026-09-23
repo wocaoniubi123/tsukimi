@@ -154,7 +154,12 @@ pub async fn paintable_from_file(
         bail!("image load cancelled");
     }
 
-    let texture = gdk::Texture::from_file(&file)?;
+    let texture = gdk::Texture::from_file(&file).inspect_err(|error| {
+        tracing::warn!(
+            "picture: could not decode {}: {error}",
+            file.parse_name()
+        )
+    })?;
     Ok(texture.upcast())
 }
 

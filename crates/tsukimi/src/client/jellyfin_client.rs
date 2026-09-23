@@ -265,7 +265,7 @@ impl JellyfinClient {
         T: for<'de> Deserialize<'de> + Send + 'static,
     {
         let request = self.prepare_request(Method::GET, path, params)?;
-        let res = self.send_request(request).await?;
+        let res = self.send_request(request, path).await?;
 
         let res = match res.error_for_status() {
             Ok(r) => r,
@@ -291,13 +291,13 @@ impl JellyfinClient {
 
     pub async fn request_picture(&self, path: &str, params: &[(&str, &str)]) -> Result<Response> {
         let request = self.prepare_request(Method::GET, path, params)?;
-        let res = self.send_request(request).await?;
+        let res = self.send_request(request, path).await?;
         Ok(res)
     }
 
     pub async fn delete(&self, path: &str, params: &[(&str, &str)]) -> Result<Response> {
         let request = self.prepare_request(Method::DELETE, path, params)?;
-        self.send_request(request).await
+        self.send_request(request, path).await
     }
 
     pub async fn post<B>(&self, path: &str, params: &[(&str, &str)], body: B) -> Result<Response>
@@ -307,7 +307,7 @@ impl JellyfinClient {
         let request = self
             .prepare_request(Method::POST, path, params)?
             .json(&body);
-        self.send_request(request).await
+        self.send_request(request, path).await
     }
 
     pub async fn post_raw<B>(&self, path: &str, body: B, content_type: &str) -> Result<Response>
@@ -317,7 +317,7 @@ impl JellyfinClient {
         let request = self
             .prepare_request_headers(Method::POST, path, &[], content_type)?
             .body(body);
-        self.send_request(request).await
+        self.send_request(request, path).await
     }
 
     pub async fn post_json<B, T>(
@@ -371,12 +371,36 @@ impl JellyfinClient {
             .headers(headers))
     }
 
-    async fn send_request(&self, request: RequestBuilder) -> Result<Response> {
+    /// Sends a request, logging what it was for. Requests are serialised
+    /// through `semaphore`, so a request that never comes back also stalls
+    /// everything queued behind it and the logs have to show that.
+    async fn send_request(&self, request: RequestBuilder, label: &str) -> Result<Response> {
+        let started = std::time::Instant::now();
         let _permit = self.semaphore.acquire().await?;
-        request
-            .send()
-            .await
-            .map_err(|e| anyhow!(e.to_user_facing()))
+        let waited = started.elapsed();
+
+        let result = request.send().await;
+        let elapsed = started.elapsed();
+
+        match &result {
+            Ok(response) => {
+                if elapsed > std::time::Duration::from_secs(5) {
+                    tracing::warn!(
+                        "{label}: slow response ({} after {:?}, permit wait {:?})",
+                        response.status(),
+                        elapsed,
+                        waited
+                    );
+                } else {
+                    tracing::debug!("{label}: {} in {:?}", response.status(), elapsed);
+                }
+            }
+            Err(error) => {
+                tracing::warn!("{label}: request failed after {elapsed:?}: {error}");
+            }
+        }
+
+        result.map_err(|e| anyhow!(e.to_user_facing()))
     }
 
     pub async fn get_current_user(&self) -> Result<User> {
@@ -403,7 +427,7 @@ impl JellyfinClient {
             )?
             .json(&body);
         Ok(self
-            .send_request(request)
+            .send_request(request, "Users/AuthenticateByName")
             .await?
             .error_for_status()?
             .json()
@@ -1453,7 +1477,7 @@ impl JellyfinClient {
             "System/Info/Public",
         )?;
         Ok(self
-            .send_request(request)
+            .send_request(request, "System/Info/Public")
             .await?
             .error_for_status()?
             .json()

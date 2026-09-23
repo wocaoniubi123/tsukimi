@@ -267,7 +267,9 @@ impl PictureLoader {
             }
         }
 
-        let file = resolve_picture_file(source).await?;
+        let file = resolve_picture_file(source)
+            .await
+            .inspect_err(|error| tracing::warn!("picture: could not resolve source: {error}"))?;
         if load_token.is_cancelled() {
             bail!("image load cancelled");
         }

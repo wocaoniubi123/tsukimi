@@ -204,9 +204,12 @@ jobs:
               gdk-pixbuf-query-loaders lib/gdk-pixbuf-2.0/2.10.0/loaders/*.dll \
                 > lib/gdk-pixbuf-2.0/2.10.0/loaders.cache
             )
-            sed -i 's#"lib/gdk-pixbuf-2.0/2.10.0/loaders/#"@APPDIR@/lib/gdk-pixbuf-2.0/2.10.0/loaders/#g' \
+            # gdk-pixbuf-query-loaders writes the paths it was given, which are
+            # absolute build-machine paths, so they are replaced by the
+            # placeholder the application substitutes at startup.
+            sed -i -E 's#"([A-Za-z]:)?[^"]*/gdk-pixbuf-2\.0/2\.10\.0/loaders/#"@APPDIR@/lib/gdk-pixbuf-2.0/2.10.0/loaders/#g' \
               "$DIST/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
-            head -3 "$DIST/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
+            head -6 "$DIST/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache"
           else
             echo "no gdk-pixbuf loaders found, images will not load" >&2
           fi
