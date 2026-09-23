@@ -139,6 +139,7 @@ pub mod imp {
 
     impl TuOverviewItem {
         pub fn set_item(&self, item: TuItem) {
+            tracing::debug!("overview: set_item");
             self.item.replace(item);
             self.obj().set_up();
         }

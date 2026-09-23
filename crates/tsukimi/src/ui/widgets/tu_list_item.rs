@@ -363,6 +363,7 @@ pub mod imp {
     impl TuListItem {
         pub fn set_item(&self, item: TuItem) {
             let obj = self.obj();
+            tracing::debug!("card: set_item");
             self.item.replace(item);
             obj.refresh_item();
         }

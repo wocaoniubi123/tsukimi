@@ -325,14 +325,17 @@ where
         let overlay = self.overlay();
 
         let Some(source) = self.get_image_source(&item) else {
+            tracing::debug!("picture: no image source for this item");
             return;
         };
 
         if let Some(picture_loader) = overlay.child().and_downcast::<PictureLoader>() {
+            tracing::debug!("picture: reloading existing loader");
             picture_loader.reload_source(source);
             return;
         }
 
+        tracing::debug!("picture: creating loader");
         let picture_loader = PictureLoader::new_for_source(source);
         overlay.set_child(Some(&picture_loader));
     }
