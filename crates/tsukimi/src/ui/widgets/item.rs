@@ -884,7 +884,7 @@ impl ItemPage {
                     // selected and `on_season_selected` would clear the episode
                     // list, leaving the series with nothing to pick. Select the
                     // first season instead, which loads its episodes.
-                    if imp.seasonlist.selected() == 0 && imp.seasonlist.n_items() > 1 {
+                    if imp.seasonlist.selected() == 0 && season_list_store.n_items() > 1 {
                         imp.seasonlist.set_selected(1);
                     } else {
                         self.on_season_selected(None, imp.seasonlist.get()).await;
